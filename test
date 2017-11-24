@@ -1,0 +1,24 @@
+`default_nettype none
+module simulatorn(
+input logic CLK_50M,
+input logic enable,
+input logic reset,
+input logic [31:0] phase_inc,
+output logic [11:0] sin_out,
+output logic [11:0] squ_out,
+output logic [11:0] saw_out,
+output logic [11:0] cos_out);
+  
+//note: reset active low
+// so to run, reset and en are both high
+waveform_gen ddswaves(
+.clk(CLK_50M),
+.reset(reset),
+.en(enable),
+.phase_inc(phase_inc),
+.sin_out(sin_out),
+.cos_out(cos_out),
+.squ_out(squ_out),
+.saw_out(saw_out));
+
+endmodule

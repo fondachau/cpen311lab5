@@ -264,42 +264,6 @@ logic CLK_25MHZ;
 logic CLK_50M;
 assign CLK_50M=CLOCK_50;
 
-//logic reset;
-//logic enable;
-//logic [31:0] phase_inc;
-
-logic [11:0] sin_out;
-logic [11:0] cos_out;
-logic [11:0] saw_out;
-logic [11:0] squ_out;
-
-waveform_gen ddswaves(
-.clk(CLK_50M),
-.reset(1'b0),
-.en(1'b1),
-.phase_inc(phase_inc),
-.sin_out(sin_out),
-.cos_out(cos_out),
-.squ_out(squ_out),
-.saw_out(saw_out));
-
-//ask, when high display cos wave, when low, value is 0
-mux2 #(12) askoutput (.a(cos_out),.b(12'b0),.sel(lfsr_out),.c(ask_out));
-
-//fsk, when high display cos at high frequency, when low display at lower frequency
-mux2 #(32) desiredfreq (.a(32'b2577),.b(32'd86),.sel(lfsr_out),.c(phase_inc));
-logic [11:0]fsk;
-assign fsk=cos_out;
-//bpsk, when high display -cos, when low display cos
-/*
-logic [31:0] d1;
-logic [31:0] desiredfreq;
-logic resetcounter1;
-logic newclock1;
-
-clockdiv div3hz (.d(d1),.desiredfreq(32'd3),.clk(CLK_50M),.reset(resetcounter1), .newclock(newclock1));
-counter counter1 (.clk(CLK_50M), .reset(resetcounter1),.Q(d1));
-*/
 
 //=======================================================
 //  Structural coding 
@@ -357,8 +321,10 @@ DE1_SoC_QSYS U0(
 	   .audio_sel_export                              (audio_selector),                               //                       audio_sel.export
 	   
        .vga_vga_clk_clk                               (video_clk_40Mhz),                               //                     vga_vga_clk.clk
-       .clk_25_out_clk                                (CLK_25MHZ)                                 //                      clk_25_out.clk
-       
+       .clk_25_out_clk                                (CLK_25MHZ),                                 //                      clk_25_out.clk
+       .lfsr_val_external_connection_export						(lfsr_out),
+		.dds_increment_external_connection_export					(fsk_out),	
+		.lfsr_clk_interrupt_gen_external_connection_export		(newclk)								
 	);
 	
  
@@ -368,9 +334,49 @@ DE1_SoC_QSYS U0(
 //
 ////////////////////////////////////////////////////////////////////		   
 
+
+logic [11:0] sin_out;
+logic [11:0] cos_out;
+logic [11:0] saw_out;
+logic [11:0] squ_out;
+logic [11:0] inv_cos_out;
+logic lfsr_out;
+logic [11:0] ask_out;
+logic [11:0] bpsk_out;
+logic [11:0] fsk_out;
+logic [31:0] d1;
+logic resetcounter1;
+logic newclk;
+logic[4:0] lfsr=5'b11111;
+logic feedback;
+
+	clockdiv_1hz clklfsr(.d(d1),.clk(CLK_50M),.reset(resetcounter1), .newclock(newclk));
+	counter counter1 (.clk(CLK_50M), .reset(resetcounter1),.Q(d1));
 	
+	
+
+
+assign lfsr_out=KEY[0];
+
+assign LEDR[1]=newclk;
+waveform_gen ddswaves(
+.clk(CLK_50M),
+.reset(1'b1),
+.en(1'b1),
+.phase_inc(32'd258),
+.sin_out(sin_out),
+.cos_out(cos_out),
+.squ_out(squ_out),
+.saw_out(saw_out));
+
+mux2 #(12) askoutput (.a(cos_out),.b(12'b0),.sel(newclk),.c(ask_out));
+inv_wave inv_cos(.clk(CLK_50M), .cos_sig(cos_out), .inv_cos_out(inv_cos_out) );
+mux2 #(12) bpskoutput (.a(cos_out),.b(inv_cos_out),.sel(newclk),.c(bpsk_out));
+
 (* keep = 1, preserve = 1 *) logic [11:0] actual_selected_modulation;
 (* keep = 1, preserve = 1 *) logic [11:0] actual_selected_signal;
+mux4 #(12)(.sel(SW[1:0]), .a(ask_out),.b(fsk_out),.c(bpsk_out), .d({12{lfsr_out}}),.out(actual_selected_modulation));
+mux4 #(12)(.sel(SW[3:2]), .a(sin_out),.b(cos_out),.c(saw_out), .d(squ_out),.out(actual_selected_signal));
 
 
 ////////////////////////////////////////////////////////////////////
@@ -709,6 +715,56 @@ endmodule
 
 
 
+module mux2 #(parameter width = 32)(input logic sel, input logic [width-1:0] a,input logic [width-1:0] b,output logic [width-1:0] c);
+assign c=sel?a:b;
+endmodule
+
+module mux4 #(parameter width = 32)(input logic[1:0] sel, input logic [width-1:0] a,input logic [width-1:0] b,input logic [width-1:0] c,input logic [width-1:0] d,output logic [width-1:0] out);
+always_comb 
+case(sel)
+2'b00:out<=a;
+2'b01:out<=b;
+2'b10:out<=c;
+2'b11:out<=d;
+default:out<=a;
+endcase
+endmodule
+
+
+module inv_wave (input logic clk, input logic [11:0] cos_sig, output logic [11:0] inv_cos_out );
+always_ff @ (posedge clk)
+begin if(cos_sig>12'b1000_0000_0000)//is negative
+inv_cos_out=(cos_sig^12'b1111_1111_1111)+1'b1;
+else
+inv_cos_out=(cos_sig-1'b1)^12'b1111_1111_1111;
+end
+endmodule
+
+module dFF(input logic clk, input logic d, output logic q);
+	always_ff @(posedge clk)
+		q<=d;
+endmodule
+
+module clockdiv_1hz (input logic [31:0] d,input logic clk, output logic newclock,output logic reset);
+always_ff @ (posedge (clk))
+begin
+	if (d==(32'd25000000-32'd1))
+		begin
+		newclock<=1'b1;
+		end
+	else if (d==(32'd50000000-32'd1))
+		begin
+		newclock<=1'b0;
+		reset<=1'b1;
+		end
+	else
+		begin
+		newclock<= newclock;
+		reset<=1'b0;
+		end
+end
+endmodule
+
 //counter: increase the value to Q every clock cycle
 module counter(input logic clk, input logic reset, output logic [31:0] Q);
 always_ff @ (posedge (clk))
@@ -720,8 +776,4 @@ begin
 	else
 		Q=Q+32'b1;
 end
-endmodule
-
-module mux2 #(parameter width = 32)(input logic sel, input logic [width-1:0] a,input logic [width-1:0] b,output logic [width-1:0] c);
-assign c=sel?a:b;
 endmodule

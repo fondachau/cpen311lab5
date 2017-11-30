@@ -815,8 +815,8 @@ endmodule
 module clock_sync (
 	input logic fast_clk,
 	input logic slow_clk,
-	input logic [1:0] async_in,
-	output logic [1:0] sync_out);
+	input logic async_in,
+	output logic sync_out);
 
 reg ff1, ff2, ff3, ff4;
 logic en, reset;

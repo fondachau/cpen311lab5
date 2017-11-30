@@ -321,9 +321,9 @@ DE1_SoC_QSYS U0(
 	   .audio_sel_export                              (audio_selector),                               //                       audio_sel.export
 	   
        .vga_vga_clk_clk                               (video_clk_40Mhz),                               //                     vga_vga_clk.clk
-       .clk_25_out_clk                                (CLK_25MHZ),                                 //                      clk_25_out.clk
+       .clk_25_out_clk                                (CLK_25MHZ)    ,                             //                      clk_25_out.clk
        .lfsr_val_external_connection_export						(lfsr_out),
-		.dds_increment_external_connection_export					(fsk_out),	
+		.dds_increment_external_connection_export					(dds_increment),	
 		.lfsr_clk_interrupt_gen_external_connection_export		(newclk)								
 	);
 	
@@ -339,6 +339,9 @@ logic [11:0] sin_out;
 logic [11:0] cos_out;
 logic [11:0] saw_out;
 logic [11:0] squ_out;
+logic [11:0] sin_out1;
+logic [11:0] saw_out1;
+logic [11:0] squ_out1;
 logic [11:0] inv_cos_out;
 logic lfsr_out;
 logic [11:0] ask_out;
@@ -347,18 +350,13 @@ logic [11:0] fsk_out;
 logic [31:0] d1;
 logic resetcounter1;
 logic newclk;
-logic[4:0] lfsr=5'b11111;
+logic[4:0] lfsr;
 logic feedback;
-
-	clockdiv_1hz clklfsr(.d(d1),.clk(CLK_50M),.reset(resetcounter1), .newclock(newclk));
-	counter counter1 (.clk(CLK_50M), .reset(resetcounter1),.Q(d1));
-	
-	
-
-
-assign lfsr_out=KEY[0];
-
+logic reset;
+partOneLFSR P1LFSR (.clk(CLK_50M), .reset(reset), .lfsr(lfsr),.newclk(newclk));
+assign LEDR[0]=lfsr_out;
 assign LEDR[1]=newclk;
+assign LEDR[7:2]=dds_increment[5:0];
 waveform_gen ddswaves(
 .clk(CLK_50M),
 .reset(1'b1),
@@ -369,14 +367,32 @@ waveform_gen ddswaves(
 .squ_out(squ_out),
 .saw_out(saw_out));
 
-mux2 #(12) askoutput (.a(cos_out),.b(12'b0),.sel(newclk),.c(ask_out));
+
+
+waveform_gen ddswaves1(
+.clk(CLK_50M),
+.reset(1'b1),
+.en(1'b1),
+.phase_inc(dds_increment),
+.sin_out(sin_out1),
+.cos_out(fsk_out),
+.squ_out(squ_out1),
+.saw_out(saw_out1));
+
+clock_sync LFSR_sync(
+.fast_clk(CLK_50M),
+.slow_clk(newclk),
+.async_in(lfsr[0]),
+.sync_out(lfsr_out));
+
+mux2 #(12) askoutput (.a(cos_out),.b(12'b0),.sel(lfsr_out),.c(ask_out));
 inv_wave inv_cos(.clk(CLK_50M), .cos_sig(cos_out), .inv_cos_out(inv_cos_out) );
-mux2 #(12) bpskoutput (.a(cos_out),.b(inv_cos_out),.sel(newclk),.c(bpsk_out));
+mux2 #(12) bpskoutput (.a(cos_out),.b(inv_cos_out),.sel(lfsr_out),.c(bpsk_out));
 
 (* keep = 1, preserve = 1 *) logic [11:0] actual_selected_modulation;
 (* keep = 1, preserve = 1 *) logic [11:0] actual_selected_signal;
-mux4 #(12)(.sel(SW[1:0]), .a(ask_out),.b(fsk_out),.c(bpsk_out), .d({12{lfsr_out}}),.out(actual_selected_modulation));
-mux4 #(12)(.sel(SW[3:2]), .a(sin_out),.b(cos_out),.c(saw_out), .d(squ_out),.out(actual_selected_signal));
+mux4 #(12)(.sel(modulation_selector[1:0]), .a(ask_out),.b(fsk_out),.c(bpsk_out), .d({!lfsr_out,{11{lfsr_out}}}),.out(actual_selected_modulation));
+mux4 #(12)(.sel(signal_selector[1:0]), .a(sin_out),.b(cos_out),.c(saw_out), .d(squ_out),.out(actual_selected_signal));
 
 
 ////////////////////////////////////////////////////////////////////
@@ -777,3 +793,54 @@ begin
 		Q=Q+32'b1;
 end
 endmodule
+
+module partOneLFSR(input logic clk, input reset, output logic [4:0] lfsr,output logic newclk);
+	//logic [4:0] lfsrreg;
+	initial lfsr= 5'b11111;
+	wire counterreset;
+	wire feedback;
+	logic [31:0] d1;
+
+	
+	clockdiv_1hz clklfsr(.d(d1), .clk(clk),.newclock(newclk), .reset(counterreset));
+	counter counterlfsr(.clk(clk), .reset(counterreset), .Q(d1));
+	
+	always_ff @(posedge newclk) begin
+			lfsr[3:0]<=lfsr[4:1];
+			lfsr[4]<= (lfsr[0] ^ lfsr[2]);
+	end
+	
+endmodule
+
+module clock_sync (
+	input logic fast_clk,
+	input logic slow_clk,
+	input logic [1:0] async_in,
+	output logic [1:0] sync_out);
+
+reg ff1, ff2, ff3, ff4;
+logic en, reset;
+
+assign reset = ~slow_clk & ff3;
+assign en = ff3 & ~ff4;
+
+always_ff @(posedge slow_clk, posedge reset)
+	if(reset) ff1 <= 1'b0;
+	else ff1 <= 1'b1;	
+
+always_ff @(posedge fast_clk)
+begin
+	ff2 <= ff1;
+	ff3 <= ff2;
+	ff4 <= ff3;
+end
+
+always_ff @(posedge fast_clk)
+begin
+	if(en) sync_out <= async_in;
+end
+
+
+
+endmodule
+

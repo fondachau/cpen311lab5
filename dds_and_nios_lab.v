@@ -357,27 +357,17 @@ partOneLFSR P1LFSR (.clk(CLK_50M), .reset(reset), .lfsr(lfsr),.newclk(newclk));
 assign LEDR[0]=lfsr_out;
 assign LEDR[1]=newclk;
 assign LEDR[7:2]=dds_increment[5:0];
+logic [31:0] dds_increment1;
 waveform_gen ddswaves(
 .clk(CLK_50M),
 .reset(1'b1),
 .en(1'b1),
-.phase_inc(32'd258),
+.phase_inc(dds_increment1),
 .sin_out(sin_out),
 .cos_out(cos_out),
 .squ_out(squ_out),
 .saw_out(saw_out));
-
-
-
-waveform_gen ddswaves1(
-.clk(CLK_50M),
-.reset(1'b1),
-.en(1'b1),
-.phase_inc(dds_increment),
-.sin_out(sin_out1),
-.cos_out(fsk_out),
-.squ_out(squ_out1),
-.saw_out(saw_out1));
+assign fsk_out[11:0]=cos_out[11:0];
 
 clock_sync LFSR_sync(
 .fast_clk(CLK_50M),
@@ -393,6 +383,7 @@ mux2 #(12) bpskoutput (.a(cos_out),.b(inv_cos_out),.sel(lfsr_out),.c(bpsk_out));
 (* keep = 1, preserve = 1 *) logic [11:0] actual_selected_signal;
 mux4 #(12)(.sel(modulation_selector[1:0]), .a(ask_out),.b(fsk_out),.c(bpsk_out), .d({!lfsr_out,{11{lfsr_out}}}),.out(actual_selected_modulation));
 mux4 #(12)(.sel(signal_selector[1:0]), .a(sin_out),.b(cos_out),.c(saw_out), .d(squ_out),.out(actual_selected_signal));
+mux4 #(12)(.sel(modulation_selector[1:0]), .a(32'd258),.b(dds_increment),.c(32'd258), .d(32'd258),.out(dds_increment1));
 
 
 ////////////////////////////////////////////////////////////////////

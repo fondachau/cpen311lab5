@@ -23,15 +23,15 @@ void handle_lfsr_interrupts(void* context, alt_u32 id)
 	#ifdef DDS_INCREMENT_BASE
 	int x;
 	x=IORD_ALTERA_AVALON_PIO_DATA(LFSR_VAL_BASE);
-	if(x==0){
+	if(x!=0){
 		IOWR_ALTERA_AVALON_PIO_DATA(DDS_INCREMENT_BASE,0x1AD);
 	}
 	else{
-		IOWR_ALTERA_AVALON_PIO_DATA (DDS_INCREMENT_BASE,0x56);
+		IOWR_ALTERA_AVALON_PIO_DATA(DDS_INCREMENT_BASE,0x56);
 	}
+
+// reset edge capture
 	IOWR_ALTERA_AVALON_PIO_EDGE_CAP(LFSR_CLK_INTERRUPT_GEN_BASE, 0x0);
-
-
 
 	#endif
 	#endif
@@ -45,7 +45,6 @@ void init_lfsr_interrupt()
 	#ifdef LFSR_VAL_BASE
 	#ifdef LFSR_CLK_INTERRUPT_GEN_BASE
 	#ifdef DDS_INCREMENT_BASE
-	
 	/* Enable interrupts */
 	IOWR_ALTERA_AVALON_PIO_IRQ_MASK(LFSR_CLK_INTERRUPT_GEN_BASE, 0x1);
 	/* Reset the edge capture register. */
